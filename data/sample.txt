@@ -1,0 +1,21 @@
+# Foundational Concepts in Computer Science and Language Modeling
+
+A language model is a probabilistic distribution over sequences of tokens. In autoregressive language modeling, the probability of a sequence of tokens is decomposed using the chain rule of probability into a product of conditional probabilities: P(x_1, x_2, ..., x_T) = \prod_{t=1}^T P(x_t | x_1, ..., x_{t-1}).
+
+The Transformer architecture, introduced by Vaswani et al. in 2017, replaces recurrent and convolutional layers entirely with attention mechanisms. The core mechanism is Scaled Dot-Product Attention: Attention(Q, K, V) = softmax((Q K^T) / \sqrt{d_k}) V. Queries (Q), Keys (K), and Values (V) are linear projections of the hidden representations.
+
+In decoder-only architectures, causal masking ensures that each token can only attend to preceding tokens and itself, preventing information leakage from future tokens. The attention matrix is masked with negative infinity above the main diagonal prior to the softmax operation.
+
+Multi-Head Attention allows the model to jointly attend to information from different representation subspaces at different positions. It projects queries, keys, and values into multiple lower-dimensional subspaces, computes attention independently in parallel, concatenates the resulting head representations, and applies a final output linear projection.
+
+Pre-Layer Normalization applies normalization (such as LayerNorm or RMSNorm) to the input of each sub-layer before the self-attention or feed-forward operations, and adds the original residual connection directly to the output. This stabilizes gradient propagation through deep neural networks and enables training without complex warm-up or learning rate gymnastics.
+
+Root Mean Square Normalization (RMSNorm) modifies standard LayerNorm by removing the mean-centering step, normalizing strictly by the root mean square of the activations. This reduces computational overhead while maintaining comparable training stability.
+
+The feed-forward network in each transformer block typically consists of two linear transformations with a non-linear activation function in between: FFN(x) = max(0, x W_1 + b_1) W_2 + b_2, or using Gaussian Error Linear Units (GELU) or Swish-Gated Linear Units (SwiGLU).
+
+Weight tying between the input embedding matrix and the output linear language modeling head shares parameter representations, significantly reducing overall parameter footprint while acting as a regularizer.
+
+During generation, decoding strategies balance coherence and diversity. Greedy search selects the token with highest probability at each step. Temperature scaling divides logits by a scalar, flattening the distribution for higher temperatures or sharpening it for lower temperatures. Top-K sampling truncates the distribution to the K highest probability tokens. Top-P (nucleus) sampling dynamically retains the smallest set of tokens whose cumulative probability exceeds threshold P.
+
+Loss is computed using Cross-Entropy between the predicted logits and target tokens shifted by one index. Perplexity, calculated as the exponential of the cross-entropy loss, measures how well the probability distribution predicts the sample tokens. Lower perplexity indicates superior predictive confidence and modeling accuracy.

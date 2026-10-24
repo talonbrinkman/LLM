@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Trained model checkpoints & large weight binaries
+model_weights/*.pt
+model_weights/*.bin
+model_weights/*.pkl
+model_weights/*.json
+checkpoints/
+runs/
+*.log
+
+# Keep sample model directory structure
+!model_weights/.gitkeep
+
+# Downloaded corpora (keep sample.txt tracked)
+data/*.txt
+!data/sample.txt
+
+# IDEs & System files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
