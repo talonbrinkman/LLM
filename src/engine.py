@@ -150,7 +150,10 @@ class Trainer:
 
     def train(self) -> Dict[str, float]:
         """Runs the main training loop with validation checks and checkpointing."""
+        head_dim = self.model_config.d_model // self.model_config.n_heads
         print(f"\nTraining on: {self.device}")
+        print(f"Architecture: {self.model_config.n_layers} layers | {self.model_config.n_heads} heads (dim {head_dim}) | d_model: {self.model_config.d_model} | d_ff: {self.model_config.d_ff}")
+        print(f"Context Window: {self.model_config.max_seq_len} tokens | Vocab Size: {self.model_config.vocab_size:,}")
         print(f"Total Parameters: {self.model.get_num_params():,}")
         print(f"Batches per Epoch: {len(self.train_loader)}")
         print(f"Total Epochs: {self.train_config.max_epochs}")
@@ -158,6 +161,8 @@ class Trainer:
 
         start_time = time.time()
         best_val_loss = float("inf")
+        epochs_no_improve = 0
+        patience = getattr(self.train_config, "early_stopping_patience", 0)
 
         for epoch in range(1, self.train_config.max_epochs + 1):
             self.model.train()
@@ -191,19 +196,28 @@ class Trainer:
                 log_str += f" | Val Loss: {val_loss:.4f} | Val PPL: {val_ppl:.2f}"
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
+                    epochs_no_improve = 0
                     self.save_checkpoint(epoch, val_loss, val_ppl, filename="best_model.pt")
+                else:
+                    epochs_no_improve += 1
+
+            # Always save latest epoch state to checkpoint.pt so interrupting training never loses progress
+            self.save_checkpoint(epoch, epoch_train_loss, train_ppl, filename="checkpoint.pt")
 
             print(log_str)
+
+            if patience > 0 and epochs_no_improve >= patience:
+                print(
+                    f"\n[Early Stopping] Validation loss did not improve for {epochs_no_improve} "
+                    f"consecutive epoch(s). Best model was saved at lowest validation loss. "
+                    f"Stopping training early at epoch {epoch} to prevent overfitting."
+                )
+                break
 
         elapsed = time.time() - start_time
         mins, secs = divmod(int(elapsed), 60)
         print("-" * 65)
         print(f"Training completed in {mins:02d}m {secs:02d}s.")
-
-        # Save final checkpoint
-        final_loss = epoch_train_loss
-        final_ppl = train_ppl
-        self.save_checkpoint(self.train_config.max_epochs, final_loss, final_ppl, filename="checkpoint.pt")
         print(f"Checkpoints successfully saved to '{self.checkpoint_dir}'.\n")
 
-        return {"final_loss": final_loss, "final_ppl": final_ppl}
+        return {"final_loss": epoch_train_loss, "final_ppl": train_ppl}

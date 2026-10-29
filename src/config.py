@@ -48,6 +48,7 @@ class TrainingConfig:
     checkpoint_dir: str = "model_weights"
     device: str = "auto"
     seed: int = 42
+    early_stopping_patience: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)

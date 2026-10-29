@@ -64,3 +64,26 @@ def test_autoregressive_generation(small_model):
     assert out.shape == (1, 2 + max_new)
     assert out[0, 0].item() == 5
     assert out[0, 1].item() == 12
+
+def test_generation_stop_sequences(small_model):
+    small_model.eval()
+    prompt = torch.tensor([[5, 12]])
+    # Force greedy generation to be deterministic
+    # Check that generation stops when stop_sequences matches
+    out = small_model.generate(
+        prompt,
+        max_new_tokens=20,
+        temperature=0.0,
+    )
+    # Pick a sequence of tokens from the output
+    tokens = out[0].tolist()
+    if len(tokens) >= 4:
+        stop_seq = tokens[2:4]
+        out_stopped = small_model.generate(
+            prompt,
+            max_new_tokens=20,
+            temperature=0.0,
+            stop_sequences=[stop_seq],
+        )
+        # Should stop before or cut off stop_seq
+        assert out_stopped.size(1) == 2 or out_stopped.size(1) < out.size(1)

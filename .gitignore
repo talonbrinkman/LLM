@@ -28,10 +28,10 @@ ENV/
 .venv/
 
 # Trained model checkpoints & large weight binaries
-model_weights/*.pt
-model_weights/*.bin
-model_weights/*.pkl
-model_weights/*.json
+model_weights*/*.pt
+model_weights*/*.bin
+model_weights*/*.pkl
+model_weights*/*.json
 checkpoints/
 runs/
 *.log

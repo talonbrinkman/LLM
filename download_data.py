@@ -60,14 +60,15 @@ def download_file(url: str, desc: str = "Downloading") -> bytes:
         print()  # newline
         return b"".join(chunks)
 
-def process_dailydialog(zip_bytes: bytes, target_path: Path) -> None:
-    """Extracts raw DailyDialog utterances and reformats them as User/Jarvis dialogue turns."""
+def process_dailydialog(zip_bytes: bytes, target_path: Path, format_mode: str = "special") -> None:
+    """Extracts raw DailyDialog utterances and reformats them with special tokens or User/Jarvis dialogue turns."""
     print("  Processing DailyDialog into conversational turn format...")
     zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
     raw_text = zf.read("train/dialogues_train.txt").decode("utf-8", errors="ignore")
 
     formatted_conversations = []
     lines = raw_text.splitlines()
+    use_special = format_mode == "special"
 
     for line in lines:
         turns = [t.strip() for t in line.split("__eou__") if t.strip()]
@@ -76,12 +77,22 @@ def process_dailydialog(zip_bytes: bytes, target_path: Path) -> None:
 
         conv_lines = []
         for i, turn in enumerate(turns):
-            # Clean spaces before punctuation
+            # Clean spaces before punctuation and fix contractions
             clean_turn = re.sub(r"\s+([.,!?:;'\"])", r"\1", turn)
-            speaker = "User" if i % 2 == 0 else "Jarvis"
-            conv_lines.append(f"{speaker}: {clean_turn}")
+            clean_turn = re.sub(r"'\s+([a-zA-Z])", r"'\1", clean_turn)
+            clean_turn = clean_turn.replace("’", "'").replace("‘", "'")
 
-        formatted_conversations.append("\n".join(conv_lines))
+            if use_special:
+                speaker = "<|user|>" if i % 2 == 0 else "<|assistant|>"
+                conv_lines.append(f"{speaker}\n{clean_turn}")
+            else:
+                speaker = "User" if i % 2 == 0 else "Jarvis"
+                conv_lines.append(f"{speaker}: {clean_turn}")
+
+        if use_special:
+            formatted_conversations.append("\n".join(conv_lines) + "<|endoftext|>")
+        else:
+            formatted_conversations.append("\n".join(conv_lines))
 
     output = "\n\n".join(formatted_conversations)
     with open(target_path, "w", encoding="utf-8") as f:
@@ -89,7 +100,7 @@ def process_dailydialog(zip_bytes: bytes, target_path: Path) -> None:
 
     print(f"  Saved {len(formatted_conversations):,} dialogues ({len(output):,} chars) to {target_path}")
 
-def download_dataset(name: str, force: bool = False) -> None:
+def download_dataset(name: str, force: bool = False, format_mode: str = "special") -> None:
     if name not in DATASETS:
         print(f"Unknown dataset '{name}'. Available: {list(DATASETS.keys())}")
         return
@@ -110,7 +121,7 @@ def download_dataset(name: str, force: bool = False) -> None:
         content = download_file(info["url"], desc=name)
 
         if info["type"] == "zip_dailydialog":
-            process_dailydialog(content, target_path)
+            process_dailydialog(content, target_path, format_mode=format_mode)
         elif info["type"] == "direct_text":
             with open(target_path, "wb") as f:
                 f.write(content)
@@ -133,6 +144,13 @@ def main():
         help="Dataset name to download (default: dailydialog)."
     )
     parser.add_argument(
+        "--format",
+        type=str,
+        default="special",
+        choices=["special", "plain"],
+        help="Dialogue format: 'special' (<|user|>, <|assistant|>) or 'plain' (User: / Jarvis:). Default: special."
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Re-download and overwrite existing files."
@@ -142,9 +160,9 @@ def main():
 
     if args.dataset == "all":
         for ds in DATASETS.keys():
-            download_dataset(ds, force=args.force)
+            download_dataset(ds, force=args.force, format_mode=args.format)
     else:
-        download_dataset(args.dataset, force=args.force)
+        download_dataset(args.dataset, force=args.force, format_mode=args.format)
 
 if __name__ == "__main__":
     main()

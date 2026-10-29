@@ -14,7 +14,7 @@
 - **Live Perplexity Tracking**: Monitors validation progress with both Cross-Entropy loss and Perplexity ($\text{PPL} = e^{\mathcal{L}}$).
 - **Flexible Decoding Engine**: Supports greedy generation, temperature scaling, Top-K filtering, Top-P (nucleus) sampling, and repetition penalties.
 - **Custom Tokenizer**: Frequency-calibrated tokenizer with reserved special tokens (`<pad>`, `<unk>`, `<bos>`, `<eos>`), clean punctuation handling, and JSON persistence.
-- **Interactive Assistant Shell**: Built-in interactive REPL (`Jarvis.py` / `generate.py`) for live prompt-and-response generation.
+- **Interactive Assistant Shell**: Built-in interactive REPL (`generate.py --interactive`) for live prompt-and-response generation.
 - **Unit Test Suite**: Full `pytest` coverage verifying tensor dimensions, loss computation, causality isolation, and tokenizer round-trips.
 
 ## 🛠️ Tech Stack
@@ -120,20 +120,27 @@ python download_data.py --dataset all
 Train a model on your custom text corpus (or the downloaded dialogue data):
 
 ```bash
-python train.py --data data/dailydialog.txt --epochs 20 --batch-size 16 --d-model 256 --n-layers 6 --n-heads 8
+# Recommended: Train scaled ~30M parameter model with 512 context and SFT loss masking
+python train.py --preset medium --sft --data data/dailydialog.txt --epochs 20
+
+# Or customize architecture manually
+python train.py --data data/dailydialog.txt --epochs 20 --batch-size 16 --d-model 512 --n-layers 8 --n-heads 8 --seq-len 512
 ```
 
 #### `train.py` Parameters:
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
-| `--data` | `data` | Path to a text file or directory of `.txt` files (scans all files if folder) |
-| `--resume` | `False` | Resume training from existing checkpoint weights without restarting |
+| `--data` | `data` | Path to a text file, directory of `.txt` files, or comma-separated list of paths |
+| `--preset` | `None` | Architecture preset: `small` (~7M params, 256 ctx), `medium` (~30M params, 512 ctx), `large` (~90M params, 1024 ctx) |
+| `--sft` | `False` | Enable Supervised Fine-Tuning mode (filters to dialogue files and masks prompt tokens) |
+| `--resume` | `False` | Resume training from existing checkpoint weights in `--checkpoint-dir` |
+| `--resume-from` | `None` | Explicit path to a `.pt` checkpoint file or weights folder to resume/fine-tune from |
 | `--checkpoint-dir` | `model_weights` | Target folder for saving weights, configs, and tokenizer |
 | `--d-model` | `256` | Hidden dimension of embeddings and attention layers |
 | `--n-layers` | `6` | Number of stacked Transformer decoder layers |
 | `--n-heads` | `8` | Number of causal multi-head attention heads |
-| `--seq-len` | `256` | Maximum context sequence window length |
-| `--vocab-size` | `8000` | Maximum vocabulary size for the custom tokenizer |
+| `--seq-len` | `512` | Maximum context sequence window length |
+| `--vocab-size` | `8192` | Maximum Byte-Level BPE vocabulary size |
 | `--epochs` | `20` | Number of complete training epochs |
 | `--batch-size` | `16` | Batch size per training step |
 | `--lr` | `3e-4` | Peak learning rate for AdamW optimizer |
@@ -141,6 +148,7 @@ python train.py --data data/dailydialog.txt --epochs 20 --batch-size 16 --d-mode
 | `--warmup-steps` | `50` | Number of linear learning rate warmup steps |
 | `--grad-clip` | `1.0` | Maximum gradient norm threshold to prevent exploding gradients |
 | `--val-split` | `0.1` | Fraction of token data reserved for validation evaluation |
+| `--early-stopping` | `0` | Auto-stop training when validation loss fails to improve for N epochs (default: `2` if flag passed, `0` = disabled) |
 | `--device` | `auto` | Target compute device (`auto`, `cuda`, or `cpu`) |
 
 Checkpoints and the fitted tokenizer are automatically saved to `model_weights/checkpoint.pt`, `model_weights/best_model.pt`, and `model_weights/tokenizer.json`.
@@ -159,8 +167,8 @@ python generate.py --prompt "User: Hello! How are you?" --temperature 0.7 --top-
 | :--- | :--- | :--- |
 | `--prompt` | `None` | Input text prompt for one-shot text generation |
 | `--interactive` | `False` | Launch interactive terminal REPL conversation shell |
-| `--checkpoint` | `model_weights/checkpoint.pt` | Path to trained model weights checkpoint |
-| `--tokenizer` | `None` | Path to custom `tokenizer.json` (auto-detected if omitted) |
+| `--checkpoint` | `model_weights/best_model.pt` | Path to a trained `.pt` checkpoint file or weights folder |
+| `--tokenizer` | `None` | Path to custom `tokenizer.json` (auto-detected from checkpoint folder if omitted) |
 | `--max-tokens` | `150` | Maximum number of new tokens to generate |
 | `--temperature` | `0.7` | Sampling temperature (lower = deterministic, higher = creative) |
 | `--top-k` | `50` | Truncate sampling distribution to top $k$ highest-probability tokens |
@@ -169,15 +177,11 @@ python generate.py --prompt "User: Hello! How are you?" --temperature 0.7 --top-
 
 ---
 
-### 4. Interactive Shell & Jarvis
+### 4. Interactive Shell
 Start an interactive conversation session in your terminal:
 
 ```bash
 python generate.py --interactive
-```
-Or launch via the Jarvis entrypoint:
-```bash
-python Jarvis.py
 ```
 
 ## 📁 Repository Structure
@@ -204,7 +208,6 @@ Custom LLM/
 ├── download_data.py          # Automated dataset downloader & formatter
 ├── train.py                  # Primary training CLI
 ├── generate.py               # Generation CLI & interactive shell
-├── Jarvis.py                 # Backwards-compatible interactive assistant
 ├── Trainer.py                # Backwards-compatible trainer script
 ├── pyproject.toml            # Python packaging and pytest configuration
 ├── requirements.txt          # Python dependencies
@@ -212,12 +215,20 @@ Custom LLM/
 └── README.md                 # Project documentation
 ```
 
-## 🔮 Upcoming Improvements
+## 🚀 Phase 2 Features (Implemented)
+
+- **Newline & Formatting Preservation**: `clean_text()` retains structural line breaks (`\n`) and paragraph separation, preventing dialogue turns from collapsing.
+- **Byte-Level Byte-Pair Encoding (BPE)**: High-performance ByteLevel BPE tokenizer with full case sensitivity, zero `<unk>` loss, and natural contraction handling.
+- **Dedicated Special Tokens**: Built-in support for standard special tokens (`<|user|>`, `<|assistant|>`, `<|system|>`, `<|endoftext|>`).
+- **Supervised Fine-Tuning (SFT) Loss Masking**: In dialogue mode, user prompt tokens are masked with `-100` so gradient updates focus 100% on generating assistant responses.
+- **Architecture Scaling Presets**: One-command scaling with `--preset small` (~7M), `--preset medium` (~30M), and `--preset large` (~90M params, 1024 context).
+- **100% Backwards Compatibility**: Legacy checkpoints continue to load seamlessly via automatic format detection.
+
+## 🔮 Upcoming Improvements (Phase 3)
 
 - **Rotary Position Embeddings (RoPE)**: Relative position encoding for improved length generalization.
-- **KV Cache Decoding**: Caching keys and values for $O(1)$ autoregressive token generation.
-- **Byte-Pair Encoding (BPE)**: Subword BPE tokenizer for handling larger and more diverse vocabularies.
-- **LoRA Fine-Tuning**: Low-Rank Adaptation module for efficient fine-tuning on downstream tasks.
+- **KV Cache Decoding**: Caching keys and values across attention layers for fast $O(1)$ autoregressive inference.
+- **LoRA Fine-Tuning**: Low-Rank Adaptation module for parameter-efficient fine-tuning on specialized domain datasets.
 
 ## 🤝 Contributing
 

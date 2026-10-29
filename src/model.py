@@ -1,5 +1,5 @@
 import math
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -212,10 +212,11 @@ class CustomTransformerLM(nn.Module):
         top_p: Optional[float] = 0.9,
         repetition_penalty: float = 1.1,
         eos_id: Optional[int] = None,
+        stop_sequences: Optional[List[List[int]]] = None,
     ) -> torch.Tensor:
         """
         Autoregressive text generation with temperature, top-k, top-p,
-        and repetition penalty controls.
+        repetition penalty, and stop sequence controls.
         """
         self.eval()
         for _ in range(max_new_tokens):
@@ -243,6 +244,16 @@ class CustomTransformerLM(nn.Module):
                 idx = torch.cat([idx, next_token], dim=1)
                 if eos_id is not None and next_token.item() == eos_id:
                     break
+                if stop_sequences:
+                    stopped = False
+                    for seq in stop_sequences:
+                        seq_len = len(seq)
+                        if seq_len > 0 and idx.size(1) >= seq_len and idx[0, -seq_len:].tolist() == seq:
+                            idx = idx[:, :-seq_len]
+                            stopped = True
+                            break
+                    if stopped:
+                        break
                 continue
 
             # Top-K filtering
@@ -270,6 +281,16 @@ class CustomTransformerLM(nn.Module):
             idx = torch.cat([idx, next_token], dim=1)
             if eos_id is not None and next_token.item() == eos_id:
                 break
+            if stop_sequences:
+                stopped = False
+                for seq in stop_sequences:
+                    seq_len = len(seq)
+                    if seq_len > 0 and idx.size(1) >= seq_len and idx[0, -seq_len:].tolist() == seq:
+                        idx = idx[:, :-seq_len]
+                        stopped = True
+                        break
+                if stopped:
+                    break
 
         return idx
 

@@ -1,11 +1,11 @@
 {
   "model": {
-    "vocab_size": 4096,
-    "max_seq_len": 256,
-    "d_model": 256,
+    "vocab_size": 8192,
+    "max_seq_len": 512,
+    "d_model": 512,
     "n_heads": 8,
-    "n_layers": 6,
-    "d_ff": 1024,
+    "n_layers": 8,
+    "d_ff": 2048,
     "dropout": 0.1,
     "bias": false,
     "tie_weights": true
@@ -21,6 +21,7 @@
     "val_split": 0.1,
     "eval_interval": 1,
     "checkpoint_dir": "model_weights",
-    "device": "auto"
+    "device": "auto",
+    "early_stopping_patience": 2
   }
 }
