@@ -34,7 +34,7 @@ def parse_args():
     parser.add_argument("--n-layers", type=int, default=6, help="Number of decoder transformer layers.")
     parser.add_argument("--n-heads", type=int, default=8, help="Number of attention heads.")
     parser.add_argument("--seq-len", type=int, default=512, help="Maximum sequence context window.")
-    parser.add_argument("--vocab-size", type=int, default=8192, help="Maximum tokenizer vocabulary size.")
+    parser.add_argument("--vocab-size", type=int, default=32768, help="Maximum tokenizer vocabulary size (default: 32768).")
 
     # Training Hyperparameters
     parser.add_argument("--epochs", type=int, default=20, help="Number of full training epochs.")
@@ -45,6 +45,12 @@ def parse_args():
     parser.add_argument("--grad-clip", type=float, default=1.0, help="Maximum gradient norm threshold.")
     parser.add_argument("--val-split", type=float, default=0.1, help="Validation dataset fraction.")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "cpu"], help="Compute device.")
+    parser.add_argument(
+        "--fp16",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable FP16 Automatic Mixed Precision on CUDA (default: True).",
+    )
     parser.add_argument("--resume", action="store_true", help="Resume training from an existing checkpoint in --checkpoint-dir.")
     parser.add_argument(
         "--resume-from",
@@ -69,7 +75,23 @@ def parse_args():
 
     return parser.parse_args()
 
+def disable_windows_quickedit():
+    """Prevents mouse clicks in Windows CMD from freezing the training process."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            h_stdin = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+            mode = ctypes.c_uint32()
+            if kernel32.GetConsoleMode(h_stdin, ctypes.byref(mode)):
+                # Clear ENABLE_QUICK_EDIT_MODE (0x0040) while keeping ENABLE_EXTENDED_FLAGS (0x0080)
+                new_mode = (mode.value & ~0x0040) | 0x0080
+                kernel32.SetConsoleMode(h_stdin, new_mode)
+        except Exception:
+            pass
+
 def main():
+    disable_windows_quickedit()
     args = parse_args()
     sub_paths = [Path(s.strip()) for s in args.data.split(",") if s.strip()]
 
@@ -206,6 +228,7 @@ def main():
         val_split=args.val_split,
         checkpoint_dir=args.checkpoint_dir,
         device=args.device,
+        fp16=args.fp16,
         early_stopping_patience=args.early_stopping,
     )
 

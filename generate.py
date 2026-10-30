@@ -41,6 +41,7 @@ def load_inference_artifacts(
     checkpoint_path: Path,
     tokenizer_path: Optional[Path] = None,
     device: Optional[torch.device] = None,
+    fp16: bool = True,
 ):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -95,6 +96,9 @@ def load_inference_artifacts(
             model_config = ModelConfig(vocab_size=len(tokenizer))
         model = CustomTransformerLM(model_config)
         model.load_state_dict(ckpt)
+
+    if fp16 and device.type == "cuda":
+        model.half()
 
     model.to(device)
     model.eval()
@@ -251,6 +255,12 @@ def main():
     parser.add_argument("--repetition-penalty", type=float, default=1.1, help="Penalty for repeating tokens.")
     parser.add_argument("--raw", action="store_true", help="Generate raw completion without dialogue formatting.")
     parser.add_argument("--interactive", action="store_true", help="Launch interactive shell.")
+    parser.add_argument(
+        "--fp16",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run inference in FP16 on CUDA (default: True).",
+    )
 
     args = parser.parse_args()
     ckpt_path = Path(args.checkpoint)
@@ -284,7 +294,7 @@ def main():
     tok_path = Path(args.tokenizer) if args.tokenizer else None
 
     try:
-        model, tokenizer, device = load_inference_artifacts(ckpt_path, tok_path)
+        model, tokenizer, device = load_inference_artifacts(ckpt_path, tok_path, fp16=args.fp16)
     except Exception as e:
         print(f"Error initializing inference engine: {e}")
         sys.exit(1)

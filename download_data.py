@@ -9,6 +9,27 @@ import zipfile
 DATA_DIR = Path("data")
 
 DATASETS = {
+    "cosmopedia": {
+        "filename": "cosmopedia_edu.txt",
+        "description": "Cosmopedia-v2: ~70 MB of synthetic textbooks, educational science, and domain knowledge.",
+        "type": "hf_parquet_text",
+        "repo_id": "HuggingFaceTB/smollm-corpus",
+        "parquet_file": "cosmopedia-v2/train-00000-of-00104.parquet",
+    },
+    "openhermes": {
+        "filename": "openhermes_reasoning.txt",
+        "description": "OpenHermes-100k: High-quality reasoning, math, and step-by-step problem-solving instructions.",
+        "type": "hf_parquet_messages",
+        "repo_id": "HuggingFaceTB/smoltalk",
+        "parquet_file": "data/openhermes-100k/train-00000-of-00001.parquet",
+    },
+    "smoltalk": {
+        "filename": "smoltalk_everyday.txt",
+        "description": "SmolTalk Everyday Conversations: Natural multi-turn dialogue with logical responses.",
+        "type": "hf_parquet_messages",
+        "repo_id": "HuggingFaceTB/smoltalk",
+        "parquet_file": "data/everyday-conversations/train-00000-of-00001.parquet",
+    },
     "dailydialog": {
         "filename": "dailydialog.txt",
         "description": "DailyDialog: ~11,000 multi-turn human conversations formatted as User/Jarvis dialogue.",
@@ -57,7 +78,7 @@ def download_file(url: str, desc: str = "Downloading") -> bytes:
                 mb_down = downloaded / (1024 * 1024)
                 print(f"\r  [{desc}] {mb_down:.2f} MB downloaded", end="", flush=True)
 
-        print()  # newline
+        print()
         return b"".join(chunks)
 
 def process_dailydialog(zip_bytes: bytes, target_path: Path, format_mode: str = "special") -> None:
@@ -77,7 +98,6 @@ def process_dailydialog(zip_bytes: bytes, target_path: Path, format_mode: str = 
 
         conv_lines = []
         for i, turn in enumerate(turns):
-            # Clean spaces before punctuation and fix contractions
             clean_turn = re.sub(r"\s+([.,!?:;'\"])", r"\1", turn)
             clean_turn = re.sub(r"'\s+([a-zA-Z])", r"'\1", clean_turn)
             clean_turn = clean_turn.replace("’", "'").replace("‘", "'")
@@ -100,7 +120,115 @@ def process_dailydialog(zip_bytes: bytes, target_path: Path, format_mode: str = 
 
     print(f"  Saved {len(formatted_conversations):,} dialogues ({len(output):,} chars) to {target_path}")
 
-def download_dataset(name: str, force: bool = False, format_mode: str = "special") -> None:
+def process_hf_parquet_text(info: dict, target_path: Path, limit: int = 20000) -> None:
+    """Downloads a text-based parquet shard from Hugging Face and extracts training documents."""
+    try:
+        from huggingface_hub import hf_hub_download
+        import pandas as pd
+    except ImportError as e:
+        print(f"Error: Missing required library: {e}. Please install via 'pip install huggingface_hub pandas pyarrow'.")
+        return
+
+    print(f"  Downloading parquet shard '{info['parquet_file']}' from '{info['repo_id']}'...")
+    parquet_path = hf_hub_download(repo_id=info["repo_id"], filename=info["parquet_file"], repo_type="dataset")
+    df = pd.read_parquet(parquet_path)
+
+    if limit and limit > 0 and len(df) > limit:
+        df = df.iloc[:limit]
+
+    print(f"  Formatting {len(df):,} educational articles into training text...")
+    records = []
+    text_col = "text" if "text" in df.columns else df.columns[0]
+    for raw in df[text_col]:
+        clean = str(raw).strip()
+        if clean:
+            records.append(f"{clean}<|endoftext|>")
+
+    output = "\n\n".join(records)
+    with open(target_path, "w", encoding="utf-8") as f:
+        f.write(output)
+
+    out_mb = target_path.stat().st_size / (1024 * 1024)
+    print(f"  [OK] Saved {len(records):,} articles ({out_mb:.2f} MB) to {target_path}")
+
+def process_hf_parquet_messages(
+    info: dict,
+    target_path: Path,
+    limit: int = 20000,
+    assistant_name: str = "Jarvis",
+    format_mode: str = "special",
+) -> None:
+    """Downloads a multi-turn chat parquet shard from Hugging Face and formats it for SFT training."""
+    try:
+        from huggingface_hub import hf_hub_download
+        import pandas as pd
+    except ImportError as e:
+        print(f"Error: Missing required library: {e}. Please install via 'pip install huggingface_hub pandas pyarrow'.")
+        return
+
+    print(f"  Downloading parquet shard '{info['parquet_file']}' from '{info['repo_id']}'...")
+    parquet_path = hf_hub_download(repo_id=info["repo_id"], filename=info["parquet_file"], repo_type="dataset")
+    df = pd.read_parquet(parquet_path)
+
+    if limit and limit > 0 and len(df) > limit:
+        df = df.iloc[:limit]
+
+    use_special = format_mode == "special"
+    print(f"  Formatting {len(df):,} dialogue threads into training text...")
+    records = []
+    msg_col = "messages" if "messages" in df.columns else df.columns[0]
+
+    for msgs in df[msg_col]:
+        if not hasattr(msgs, "__iter__"):
+            continue
+        turns = []
+        for turn in msgs:
+            if not isinstance(turn, dict):
+                continue
+            role = str(turn.get("role", "")).lower()
+            content = str(turn.get("content", "")).strip()
+            if not content:
+                continue
+
+            if use_special:
+                if any(k in role for k in ["user", "human"]):
+                    speaker = "<|user|>"
+                elif any(k in role for k in ["assistant", "gpt", "bot", "model"]):
+                    speaker = "<|assistant|>"
+                elif "system" in role:
+                    speaker = "<|system|>"
+                else:
+                    speaker = "<|user|>"
+                turns.append(f"{speaker}\n{content}")
+            else:
+                if any(k in role for k in ["user", "human"]):
+                    speaker = "User"
+                elif any(k in role for k in ["assistant", "gpt", "bot", "model"]):
+                    speaker = assistant_name
+                elif "system" in role:
+                    speaker = "System"
+                else:
+                    speaker = str(role).capitalize()
+                turns.append(f"{speaker}: {content}")
+
+        if turns:
+            eos = "<|endoftext|>" if use_special else ""
+            records.append("\n".join(turns) + eos)
+
+    output = "\n\n".join(records)
+    with open(target_path, "w", encoding="utf-8") as f:
+        f.write(output)
+
+    out_mb = target_path.stat().st_size / (1024 * 1024)
+    print(f"  [OK] Saved {len(records):,} dialogues ({out_mb:.2f} MB) to {target_path}")
+
+def download_dataset(
+    name: str,
+    force: bool = False,
+    format_mode: str = "special",
+    limit: int = 20000,
+    assistant_name: str = "Jarvis",
+) -> None:
     if name not in DATASETS:
         print(f"Unknown dataset '{name}'. Available: {list(DATASETS.keys())}")
         return
@@ -118,11 +246,16 @@ def download_dataset(name: str, force: bool = False, format_mode: str = "special
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
-        content = download_file(info["url"], desc=name)
-
-        if info["type"] == "zip_dailydialog":
+        dtype = info["type"]
+        if dtype == "hf_parquet_text":
+            process_hf_parquet_text(info, target_path, limit=limit)
+        elif dtype == "hf_parquet_messages":
+            process_hf_parquet_messages(info, target_path, limit=limit, assistant_name=assistant_name, format_mode=format_mode)
+        elif dtype == "zip_dailydialog":
+            content = download_file(info["url"], desc=name)
             process_dailydialog(content, target_path, format_mode=format_mode)
-        elif info["type"] == "direct_text":
+        elif dtype == "direct_text":
+            content = download_file(info["url"], desc=name)
             with open(target_path, "wb") as f:
                 f.write(content)
             size_mb = target_path.stat().st_size / (1024 * 1024)
@@ -130,7 +263,7 @@ def download_dataset(name: str, force: bool = False, format_mode: str = "special
 
         print(f"[OK] Successfully prepared: {target_path}")
     except Exception as e:
-        print(f"[Error] Failed to download {name}: {e}")
+        print(f"[Error] Failed to prepare {name}: {e}")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -139,9 +272,15 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="dailydialog",
-        choices=["dailydialog", "tinystories", "tinyshakespeare", "all"],
-        help="Dataset name to download (default: dailydialog)."
+        default="openhermes",
+        choices=["cosmopedia", "openhermes", "smoltalk", "dailydialog", "tinystories", "tinyshakespeare", "all"],
+        help="Dataset name to download (default: openhermes)."
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=20000,
+        help="Maximum records to extract for large datasets (default: 20000, set 0 for all).",
     )
     parser.add_argument(
         "--format",
@@ -160,9 +299,9 @@ def main():
 
     if args.dataset == "all":
         for ds in DATASETS.keys():
-            download_dataset(ds, force=args.force, format_mode=args.format)
+            download_dataset(ds, force=args.force, format_mode=args.format, limit=args.limit)
     else:
-        download_dataset(args.dataset, force=args.force, format_mode=args.format)
+        download_dataset(args.dataset, force=args.force, format_mode=args.format, limit=args.limit)
 
 if __name__ == "__main__":
     main()

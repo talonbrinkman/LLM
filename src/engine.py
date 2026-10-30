@@ -87,6 +87,10 @@ class Trainer:
 
         self.model.to(self.device)
 
+        # Mixed Precision (FP16) setup
+        self.use_fp16 = getattr(train_config, "fp16", True) and (self.device.type == "cuda")
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_fp16)
+
         # Optimizer and Scheduler
         self.optimizer = configure_optimizers(
             self.model,
@@ -118,7 +122,8 @@ class Trainer:
 
         for x, y in self.val_loader:
             x, y = x.to(self.device), y.to(self.device)
-            _, loss = self.model(x, targets=y)
+            with torch.amp.autocast("cuda", dtype=torch.float16, enabled=self.use_fp16):
+                _, loss = self.model(x, targets=y)
             if loss is not None:
                 total_loss += loss.item()
                 total_batches += 1
@@ -154,6 +159,7 @@ class Trainer:
         print(f"\nTraining on: {self.device}")
         print(f"Architecture: {self.model_config.n_layers} layers | {self.model_config.n_heads} heads (dim {head_dim}) | d_model: {self.model_config.d_model} | d_ff: {self.model_config.d_ff}")
         print(f"Context Window: {self.model_config.max_seq_len} tokens | Vocab Size: {self.model_config.vocab_size:,}")
+        print(f"Precision: {'FP16 Mixed Precision (AMP)' if self.use_fp16 else 'FP32 Full Precision'}")
         print(f"Total Parameters: {self.model.get_num_params():,}")
         print(f"Batches per Epoch: {len(self.train_loader)}")
         print(f"Total Epochs: {self.train_config.max_epochs}")
@@ -172,14 +178,23 @@ class Trainer:
                 x, y = x.to(self.device), y.to(self.device)
 
                 self.optimizer.zero_grad(set_to_none=True)
-                _, loss = self.model(x, targets=y)
+                with torch.amp.autocast("cuda", dtype=torch.float16, enabled=self.use_fp16):
+                    _, loss = self.model(x, targets=y)
 
                 if loss is None:
                     continue
 
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.train_config.grad_clip)
-                self.optimizer.step()
+                if self.use_fp16:
+                    self.scaler.scale(loss).backward()
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.train_config.grad_clip)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.train_config.grad_clip)
+                    self.optimizer.step()
+
                 self.scheduler.step()
 
                 running_loss += loss.item()
@@ -204,7 +219,7 @@ class Trainer:
             # Always save latest epoch state to checkpoint.pt so interrupting training never loses progress
             self.save_checkpoint(epoch, epoch_train_loss, train_ppl, filename="checkpoint.pt")
 
-            print(log_str)
+            print(log_str, flush=True)
 
             if patience > 0 and epochs_no_improve >= patience:
                 print(

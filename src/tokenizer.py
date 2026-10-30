@@ -41,7 +41,7 @@ class Tokenizer:
         ENDOFTEXT_TOKEN,
     ]
 
-    def __init__(self, vocab_size: int = 8192, use_bpe: bool = True):
+    def __init__(self, vocab_size: int = 32768, use_bpe: bool = True):
         self.vocab_size = vocab_size
         if use_bpe and vocab_size >= 256 and not HAS_HF_TOKENIZERS:
             print(

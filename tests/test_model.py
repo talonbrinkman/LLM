@@ -87,3 +87,37 @@ def test_generation_stop_sequences(small_model):
         )
         # Should stop before or cut off stop_seq
         assert out_stopped.size(1) == 2 or out_stopped.size(1) < out.size(1)
+
+def test_large_vocab_32768():
+    config = ModelConfig(
+        vocab_size=32768,
+        max_seq_len=16,
+        d_model=64,
+        n_heads=2,
+        n_layers=2,
+        d_ff=128,
+        tie_weights=True,
+    )
+    model = CustomTransformerLM(config)
+    x = torch.randint(0, 32768, (2, 8))
+    logits, _ = model(x)
+    assert logits.shape == (2, 8, 32768)
+
+def test_fp16_autocast_forward():
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA not available for FP16 test")
+    config = ModelConfig(
+        vocab_size=1000,
+        max_seq_len=16,
+        d_model=64,
+        n_heads=2,
+        n_layers=2,
+        d_ff=128,
+    )
+    model = CustomTransformerLM(config).cuda()
+    x = torch.randint(0, 1000, (2, 8), device="cuda")
+    y = torch.randint(0, 1000, (2, 8), device="cuda")
+    with torch.amp.autocast("cuda", dtype=torch.float16):
+        logits, loss = model(x, targets=y)
+    assert loss is not None
+    assert loss.dtype == torch.float32 or loss.dtype == torch.float16

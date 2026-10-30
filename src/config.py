@@ -5,7 +5,7 @@ from typing import Optional, Union
 
 @dataclass
 class ModelConfig:
-    vocab_size: int = 5000
+    vocab_size: int = 32768
     max_seq_len: int = 512
     d_model: int = 256
     n_heads: int = 8
@@ -47,6 +47,7 @@ class TrainingConfig:
     eval_interval: int = 1
     checkpoint_dir: str = "model_weights"
     device: str = "auto"
+    fp16: bool = True
     seed: int = 42
     early_stopping_patience: int = 0
 
